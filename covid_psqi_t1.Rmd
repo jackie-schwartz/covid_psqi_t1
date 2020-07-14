@@ -1,0 +1,490 @@
+---
+title: "covid_psqi_t1"
+author: "Jackie"
+date: "7/4/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+# loading libraries
+```{r}
+library(lmerTest)
+library(tidyverse)
+library(foreign)
+library(haven)
+library(readxl)
+library(naniar)
+library(lubridate)
+```
+
+# reading in data
+```{r}
+covidt1_fp <- "~/Box/mooddata_nophi/ELS_RDoC/T-COVID-19/DATA/ELS_COVID_T1_Final_Child_Raw.csv"
+covidt1 <- read_csv(covidt1_fp)
+```
+
+## selecting relevant variables
+```{r}
+covidt1_select <-
+  covidt1 %>%
+  dplyr::select(ELS_ID, Child_Age.TC, Hours_sleep_3months.TC, contains("psqi"))
+```
+
+_Only include self-rated questions, which yield seven components of sleep quality:_ 0 = no difficulty, 3 = severe difficulty  
+No reverse scoring  
+The global score can range from 0 - 21
+
+### _1_ Subjective Sleep Quality  
+```{r}
+# question 9 in the way that we ordered it ("During the past month, how would you rate your sleep
+# quality over all?")
+covidt1_comp1 <- 
+  covidt1_select %>%
+  mutate(comp1_subj_sleep_qual = covid_psqi_9)
+```
+
+### _2_ Sleep latency
+
+#### _step 1 wrangling_
+```{r}
+# if people wrote a range of minutes for sleep latency: separated the min and max into two spearate variables
+
+covidt1_comp2 <- 
+  covidt1_comp1 %>%
+  mutate(
+    covid_psqi_2_copy = covid_psqi_2
+    ) %>%
+  mutate(
+    covid_psqi_2_copy = str_replace(covid_psqi_2_copy, "May", "5"), # some answered "5" but exported as "May"
+    covid_psqi_2_clean = str_extract(covid_psqi_2_copy, "\\-*\\d+\\.*\\d*"),
+    covid_psqi_2_pt1 = ifelse(str_detect(covid_psqi_2_copy, "-"),
+                              str_extract(covid_psqi_2_copy, "\\d+"),
+                              NA), # if there was a range extracting the min and max
+    covid_psqi_2_pt2 = ifelse(str_detect(covid_psqi_2_copy, "-"),
+                              str_extract(covid_psqi_2_copy, "\\-\\d+\\.*"),
+                              NA),
+    covid_psqi_2_pt2 = str_extract(covid_psqi_2_pt2, "\\d+")
+  ) 
+
+
+# dropping incomplete psqis
+covidt1_comp2_clean <-
+  covidt1_comp2 %>%
+  mutate(
+    covid_psqi_2_pt1 = as.numeric(as.character(covid_psqi_2_pt1)),
+    covid_psqi_2_pt2 = as.numeric(as.character(covid_psqi_2_pt2))
+  ) %>%
+  drop_na(psqi_timestamp)
+```
+
+#### _step 2_ averaging min and max of range for q2
+```{r}
+# averaging min and max, otherwise using the clean variable
+covidt1_comp2_clean <-
+  covidt1_comp2_clean %>%
+  tibble::as_tibble() %>%
+  group_by(ELS_ID) %>%
+  mutate(
+    covid_psqi_2_clean_rec =
+      ifelse(!is.na(covid_psqi_2_pt1) &
+               !is.na(covid_psqi_2_pt2),
+             (covid_psqi_2_pt1 + covid_psqi_2_pt2)/2,
+             as.numeric(covid_psqi_2_clean)
+             )
+    )
+```
+
+#### recoding q2, adding q2 and q5a, and recoding for final component 2 score
+```{r}
+covidt1_comp2_clean_sum <-
+  covidt1_comp2_clean %>%
+  dplyr::select(-covid_psqi_2_copy,
+                -covid_psqi_2_clean,
+                -covid_psqi_2_pt1,
+                -covid_psqi_2_pt2) %>%
+  mutate(
+    comp2_psqi_2_clean_rec_fin =
+      ifelse(covid_psqi_2_clean_rec <= 15,
+             "0",
+             "1"),
+    comp2_psqi_2_clean_rec_fin = 
+      ifelse(covid_psqi_2_clean_rec >= 16 & covid_psqi_2_clean_rec <= 30,
+             "1",
+             comp2_psqi_2_clean_rec_fin),
+    comp2_psqi_2_clean_rec_fin =
+      ifelse(covid_psqi_2_clean_rec >= 31 & covid_psqi_2_clean_rec <= 60,
+             "2",
+             comp2_psqi_2_clean_rec_fin),
+    comp2_psqi_2_clean_rec_fin =
+      ifelse(covid_psqi_2_clean_rec > 60,
+             "3",
+             comp2_psqi_2_clean_rec_fin)
+    ) %>%
+  mutate(
+    comp2_psqi_2_clean_rec_fin = as.numeric(comp2_psqi_2_clean_rec_fin),
+    covid_psqi_5a = as.numeric(covid_psqi_5a),
+    comp2_psqi_2plus5a =
+      (comp2_psqi_2_clean_rec_fin + covid_psqi_5a) # adding q2 and q5a
+  ) %>%
+  mutate(
+    comp2_sleep_lat =
+      ifelse(comp2_psqi_2plus5a == 0,
+             "0",
+             "1"),
+    comp2_sleep_lat =
+      ifelse(comp2_psqi_2plus5a >= 1 & comp2_psqi_2plus5a <= 2,
+             "1",
+             comp2_sleep_lat),
+    comp2_sleep_lat =
+      ifelse(comp2_psqi_2plus5a >=3 & comp2_psqi_2plus5a <= 4,
+             "2",
+             comp2_sleep_lat),
+    comp2_sleep_lat =
+      ifelse(comp2_psqi_2plus5a >=5 & comp2_psqi_2plus5a <= 6,
+             "3",
+             comp2_sleep_lat)
+  )
+
+covidt1_comp2_clean_sum <-
+  covidt1_comp2_clean_sum %>%
+  dplyr::select(-covid_psqi_2_clean_rec,
+                -comp2_psqi_2_clean_rec_fin,
+                -comp2_psqi_2plus5a
+                )
+```
+
+### _3_ Sleep Duration
+
+#### _step 1 wrangling_
+```{r}
+covidt1_comp3 <- 
+  covidt1_comp2_clean_sum %>%
+  mutate(
+    covid_psqi_4_copy = covid_psqi_4
+    ) %>%
+  mutate(
+    covid_psqi_4_copy = str_replace(covid_psqi_4_copy, "May", "5"),# some answered "5" but exported as "May"
+    covid_psqi_4_copy = str_replace(covid_psqi_4_copy, "Jun", "6"), # some answered "6" but exported as "Jun"
+    covid_psqi_4_copy = str_replace(covid_psqi_4_copy, "Jul", "7"), # some answered "7" but exported as "Jul"
+    covid_psqi_4_copy = str_replace(covid_psqi_4_copy, "Aug", "8"), # some answered "8" but exported as "Aug"
+    covid_psqi_4_clean = str_replace(covid_psqi_4_copy, ":", "."),
+    covid_psqi_4_clean = str_extract(covid_psqi_4_clean, "\\.*\\d+\\.*\\d*"),
+    covid_psqi_4_pt1 = ifelse(str_detect(covid_psqi_4_copy, "-"),
+                              str_extract(covid_psqi_4_copy, "\\d+"),
+                              NA), # if there was a range extracting the min and max
+    covid_psqi_4_pt2 = ifelse(str_detect(covid_psqi_4_copy, "-"),
+                              str_extract(covid_psqi_4_copy, "\\-\\d+\\.*"),
+                              NA),
+    covid_psqi_4_pt2 = str_extract(covid_psqi_4_pt2, "\\d+")
+  )
+  
+# converting to numeric
+covidt1_comp3_clean <-
+  covidt1_comp3 %>%
+  mutate(
+    covid_psqi_4_pt1 = as.numeric(as.character(covid_psqi_4_pt1)),
+    covid_psqi_4_pt2 = as.numeric(as.character(covid_psqi_4_pt2))
+  )
+  
+```
+
+#### _step 2_ averaging min and max of range for q4
+```{r}
+# averaging min and max, otherwise using the clean variable
+covidt1_comp3_clean <-
+  covidt1_comp3_clean %>%
+  tibble::as_tibble() %>%
+  group_by(ELS_ID) %>%
+  mutate(
+    covid_psqi_4_clean_rec =
+      ifelse(!is.na(covid_psqi_4_pt1) &
+               !is.na(covid_psqi_4_pt2),
+             (covid_psqi_4_pt1 + covid_psqi_4_pt2)/2,
+             as.numeric(covid_psqi_4_clean)
+             )
+    )
+
+covidt1_comp3_clean_sum <-
+  covidt1_comp3_clean %>%
+  mutate(
+    comp3_sleep_dur =
+      ifelse(covid_psqi_4_clean_rec >7,
+             "0",
+             "1"),
+    comp3_sleep_dur = 
+      ifelse(covid_psqi_4_clean_rec >= 6 & covid_psqi_4_clean_rec <= 7,
+             "1",
+             comp3_sleep_dur),
+    comp3_sleep_dur =
+      ifelse(covid_psqi_4_clean_rec >=5 & covid_psqi_4_clean_rec < 6,
+             "2",
+             comp3_sleep_dur),
+    comp3_sleep_dur =
+      ifelse(covid_psqi_4_clean_rec < 5,
+             "3",
+             comp3_sleep_dur)
+    ) %>%
+  dplyr::select(-covid_psqi_4_copy)
+```
+
+### _4_ Habitual sleep efficiency
+#### _step 1_ 
+Already coded as it should be! 
+
+#### _step 2_
+calc the num of hrs spent in bed (getting up time: quest 3) and bedtime (quest #1)    
+some individuls recognized military time, and some didn't  
+recoding covid_psqi_1 (bedtime) to be all military time  
+this mainly affected the following times (7pm - 12pm): mil_time <- 07 = 19, 08 = 20, 09 = 21, 10 = 22, 11 = 23, 12 = 00  
+covid_psqi_3 times all made sense  
+```{r}
+# selecting which obs to recode and adding 12 hrs. (43200 sec), and then extracting just the time
+covidt1_comp4_s1 <-
+  covidt1_comp3_clean_sum %>%
+  mutate(
+    covid_psqi_1_rec =
+      ifelse(hour(covid_psqi_1) >= 7 & hour(covid_psqi_1) <= 12,
+             "recode",
+             NA),
+    covid_psqi_1_rec_mil =
+      ifelse(hour(covid_psqi_1) == 9 | hour(covid_psqi_1) == 10 | hour(covid_psqi_1) == 11 | hour(covid_psqi_1) == 12,
+             covid_psqi_1 + 43200,
+             covid_psqi_1),
+    covid_psqi_1_rec_mil = as_datetime(covid_psqi_1_rec_mil, tz = "UTC")
+  )
+
+# unfortunatley, midnight 00:00:00 was not recognized, so recoding that here ("\\.*\\d+\\.*\\d*")
+library(stringi)
+library(stringr)
+covidt1_comp4_s1_recode <- 
+  covidt1_comp4_s1 %>%
+  mutate(
+    covid_psqi_1_rec_mil_hms = str_extract(covid_psqi_1_rec_mil, pattern = "\\d+\\:+\\d+\\:+\\d+"),
+  ) %>%
+  mutate(
+    covid_psqi_1_rec_mil_hm = ifelse(
+      hour(covid_psqi_1_rec_mil) == 00 & minute(covid_psqi_1_rec_mil) == 00,
+      "00:00:00",
+      covid_psqi_1_rec_mil_hms)
+  ) %>%
+  dplyr::select(-covid_psqi_1_rec_mil_hms, -covid_psqi_1_rec)
+```
+
+##### _step 2a_
+converting covid_psqi_1_rec_mil_hm to a time object  
+converting covid_psqi_1_datetime and covid_psqi_1_datetime to dttm object  
+creating "go to bed" date and "getting up time" date  
+since some individuals went to bed at/after midnight, had to change those dates to the same date as "get up time" date  
+```{r}
+library(hms)
+covidt1_comp4_s2a <-
+  covidt1_comp4_s1_recode %>%
+  mutate(
+    covid_psqi_1_datetime = as.hms(covid_psqi_1_rec_mil_hm),
+    covid_psqi_1_datetime = as_datetime(covid_psqi_1_datetime, tz = "UTC"),
+    covid_psqi_3_datetime = as_datetime(covid_psqi_3, tz = "UTC"),
+    covid_psqi_1_date = as_date(now()),
+    covid_psqi_3_date = covid_psqi_1_date + 1
+  ) %>%
+  mutate(
+    covid_psqi_1_date =
+      ifelse(hour(covid_psqi_1_datetime) >= "20" & hour(covid_psqi_1_datetime) <= "24",
+             covid_psqi_1_date,
+             covid_psqi_3_date)
+  ) %>%
+  mutate(
+    covid_psqi_1_date = as_date(covid_psqi_1_date)
+  )
+```
+
+##### _step 2b_
+updating the covid_psqi_1_datetime and covid_psqi_3_datetime objects with the correct dates
+```{r}
+covidt1_comp4_s2b <-
+  covidt1_comp4_s2a %>%
+  mutate(
+    covid_psqi_1_datetime = 
+      update(covid_psqi_1_datetime, year = year(covid_psqi_1_date), month = month(covid_psqi_1_date), mday = mday(covid_psqi_1_date)),
+    covid_psqi_3_datetime =
+      update(covid_psqi_3_datetime, year = year(covid_psqi_3_date), month = month(covid_psqi_3_date), mday = mday(covid_psqi_3_date))
+  )
+```
+
+##### _step 2c_
+to get hours in bed subtracting covid_psqi_1_datetime and covid_psqi_3_datetime
+```{r}
+covidt1_comp4_s2c <-
+  covidt1_comp4_s2b %>%
+  mutate(
+   hrs_in_bed = abs(covid_psqi_1_datetime - covid_psqi_3_datetime)
+   ) %>%
+  dplyr::select(-covid_psqi_1_rec_mil, -covid_psqi_1_rec_mil_hm, -covid_psqi_1_date, -covid_psqi_3_date)
+```
+
+
+#### _step 3_
+calc habitual sleep efficiency (num hrs slept / num hrs in bed) x 100 = habit sleep efficiency (%)  
+using the covid_psqi_4_clean_rec for num of hrs slept  
+using hrs_in_bed for num of hrs spent in bed  
+```{r}
+covidt1_comp4_s3 <-
+  covidt1_comp4_s2c %>%
+  mutate(
+    hrs_in_bed = as.numeric(hrs_in_bed),
+    sleep_eff = (covid_psqi_4_clean_rec/hrs_in_bed)*100
+  )
+```
+
+#### _step 4_
+assign component 4 score  
+```{r}
+covidt1_comp4_s4 <-
+  covidt1_comp4_s3 %>%
+  mutate(
+    comp4_sleep_eff =
+      ifelse(sleep_eff > 85,
+             "0",
+             "1"),
+    comp4_sleep_eff = 
+      ifelse(sleep_eff >= 75 & sleep_eff <= 84,
+             "1",
+             comp4_sleep_eff),
+    comp4_sleep_eff =
+      ifelse(sleep_eff >= 65 & sleep_eff <= 74,
+             "2",
+             comp4_sleep_eff),
+    comp4_sleep_eff =
+      ifelse(sleep_eff < 65,
+             "3",
+             comp4_sleep_eff)
+    )
+```
+
+### _5_ Sleep disturbances
+For questions 5b-5j, score like this:    
+not during the past month = 0  
+less than once a week = 1  
+once or twice a week = 3  
+three or more times a week = 4  
+_step 1 of 5:_ Already coded as it should be!  
+#### _step 2_  
+sum of 5b-5j
+```{r}
+covidt1_comp5 <-
+  covidt1_comp4_s4 %>%
+    mutate(
+    sum_sleep_dist = rowSums(across(covid_psqi_5a:covid_psqi_5j))
+      )
+```
+
+#### _step 3_  
+assign component 5 score
+```{r}
+covidt1_comp5 <-
+  covidt1_comp5 %>%
+  mutate(
+    comp5_sleep_dist =
+      ifelse(sum_sleep_dist == 0,
+             "0",
+             "1"),
+    comp5_sleep_dist = 
+      ifelse(sum_sleep_dist >= 1 & sum_sleep_dist <= 9,
+             "1",
+             comp5_sleep_dist),
+    comp5_sleep_dist =
+      ifelse(sum_sleep_dist >= 10 & sum_sleep_dist <= 18,
+             "2",
+             comp5_sleep_dist),
+    comp5_sleep_dist =
+      ifelse(sum_sleep_dist >= 19 & sum_sleep_dist <= 27,
+             "3",
+             comp5_sleep_dist)
+    )
+```
+
+
+### _6_ Use of sleep med  
+```{r}
+# question 6 in the way that we ordered it ("During the past month, how often did you take medicine
+# (prescribed or 'over the counter') to help you sleep?"")
+covidt1_comp6 <-
+  covidt1_comp5 %>%
+  mutate(
+    comp6_sleep_med = covid_psqi_6
+  )
+```
+
+### _7_ Daytime dysfunction
+```{r}
+# question 7 in the way we ordered it ("During the past month, how often did you have trouble
+# staying awake during class time, eating meals, or engaging in social activity?")
+
+# and question 8 in the way we ordered it ("During the past month, how much of a problem was it for
+# you to keep up enthusiasm to get things done?")
+covidt1_comp7 <-
+  covidt1_comp6 %>%
+  mutate(
+    sum_day_disfunc = rowSums(across(covid_psqi_7:covid_psqi_8))
+  )
+
+# assign component 7 score
+covidt1_comp7 <-
+  covidt1_comp7 %>%
+  mutate(
+    comp7_day_disfunc =
+      ifelse(sum_day_disfunc == 0,
+             "0",
+             "1"),
+    comp7_day_disfunc = 
+      ifelse(sum_day_disfunc == 1 | sum_day_disfunc == 2,
+             "1",
+             comp7_day_disfunc),
+    comp7_day_disfunc =
+      ifelse(sum_day_disfunc == 3 | sum_day_disfunc == 4,
+             "2",
+             comp7_day_disfunc),
+    comp7_day_disfunc =
+      ifelse(sum_day_disfunc == 5 | sum_day_disfunc == 6,
+             "3",
+             comp7_day_disfunc)
+    )
+```
+
+_Summing all 7 components together_  
+```{r}
+to_num <-
+  function(x) as.numeric(x)
+
+vars <- c("comp1_subj_sleep_qual", "comp2_sleep_lat", "comp3_sleep_dur", 
+    "comp4_sleep_eff", "comp5_sleep_dist", "comp6_sleep_med", "comp7_day_disfunc")
+covidt1_comp_sum_all <-
+  covidt1_comp7 %>%
+  dplyr::select(
+    ELS_ID, Child_Age.TC, Hours_sleep_3months.TC, psqi_timestamp, 
+    comp1_subj_sleep_qual, comp2_sleep_lat, comp3_sleep_dur, 
+    comp4_sleep_eff, comp5_sleep_dist, comp6_sleep_med, comp7_day_disfunc
+  ) %>%
+  mutate_at(vars, to_num) %>%
+  mutate(
+    covid_psqi_t1_total = rowSums(across(comp1_subj_sleep_qual:comp7_day_disfunc))
+  )
+```
+
+_Distribution of global PSQI scores at T1_
+```{r}
+covid_psqi_hist <-
+ covidt1_comp_sum_all %>%
+  ggplot(aes(x=covid_psqi_t1_total)) +
+  geom_histogram(stat = "count", fill = "purple") +
+  theme_minimal() +
+  labs(
+    x = "PSQI Global Score"
+  ) + 
+  theme(
+    axis.text = element_text(size = 12, angle = 30, hjust = 1),
+    axis.title = element_text(size = 14)
+  ) 
+covid_psqi_hist
+```
+
