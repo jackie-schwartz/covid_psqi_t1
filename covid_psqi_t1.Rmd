@@ -2,9 +2,7 @@
 title: "covid_psqi_t1"
 author: "Jackie"
 date: "7/4/2020"
-output:
-  html_document:
-    df_print: paged
+output: html_notebook
 ---
 
 # loading libraries
@@ -468,7 +466,94 @@ covidt1_comp_sum_all <-
   mutate_at(vars, to_num) %>%
   mutate(
     covid_psqi_t1_total = rowSums(across(comp1_subj_sleep_qual:comp7_day_disfunc))
-  )
+  ) %>%
+  drop_na()
+```
+
+```{r}
+library(cocron)
+library(MBESS)
+map(covidt1_comp_sum_all, ~sum(is.na(.))) 
+
+psqi_alpha <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc)
+  
+cronbach.alpha(psqi_alpha, standardized = T)
+# 0.56 (NOT GREAT!)
+# ci.reliability(data=psqi_alpha, type="hierarchical", conf.level = 0.95,
+# interval.type="bca", B=1000)
+# varTable(psqi_alpha)
+```
+
+#### what happens if I remove a component
+```{r}
+# remove comp 1
+psqi_alpha_rem_c1 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp2_sleep_lat:comp7_day_disfunc)
+cronbach.alpha(psqi_alpha_rem_c1, standardized = T) # 0.4554512 (worse!)
+
+# remove comp 2
+psqi_alpha_rem_c2 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc, -comp2_sleep_lat)
+cronbach.alpha(psqi_alpha_rem_c2, standardized = T) # 0.5159377 (worse!)
+
+# remove comp 3
+psqi_alpha_rem_c3 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc, -comp3_sleep_dur)
+cronbach.alpha(psqi_alpha_rem_c3, standardized = T) # 0.5399781 (worse!)
+
+# remove comp 4
+psqi_alpha_rem_c4 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc, -comp4_sleep_eff)
+cronbach.alpha(psqi_alpha_rem_c4, standardized = T) # 0.5925679 (better!)
+
+# remove comp 5
+psqi_alpha_rem_c5 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc, -comp5_sleep_dist)
+cronbach.alpha(psqi_alpha_rem_c5, standardized = T) # 0.4417017 (worse!)
+
+# remove comp 6
+psqi_alpha_rem_c6 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc, -comp6_sleep_med)
+cronbach.alpha(psqi_alpha_rem_c6, standardized = T) # 0.5663596 (better!)
+
+psqi_alpha_rem_c7 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp6_sleep_med)
+cronbach.alpha(psqi_alpha_rem_c7, standardized = T) # 0.491033 (worse!)
+
+# removing comps 3, 4 and 6
+psqi_alpha_rem_c34and6 <- 
+  covidt1_comp_sum_all %>%
+  group_by(ELS_ID) %>%
+  ungroup() %>%
+  dplyr::select(comp1_subj_sleep_qual:comp7_day_disfunc, -comp3_sleep_dur, -comp4_sleep_eff, -comp6_sleep_med)
+cronbach.alpha(psqi_alpha_rem_c34and6, standardized = T) # 0.6590607 (better!)
+
+
 ```
 
 _Distribution of global PSQI scores at T1_
@@ -486,5 +571,62 @@ covid_psqi_hist <-
     axis.title = element_text(size = 14)
   ) 
 covid_psqi_hist
+```
+```{r}
+covidt1_comp_sum_all_long <-
+  covidt1_comp_sum_all %>%
+  gather(component, comp_score, comp1_subj_sleep_qual:comp7_day_disfunc)
+```
+
+_Distribution of  PSQI scores by Domain at T1_
+```{r}
+covid_psqi_hist_bycomp <-
+ covidt1_comp_sum_all_long %>%
+  ggplot(aes(x=comp_score, fill = component)) +
+  geom_histogram(binwidth = .5, position ="dodge") +
+  facet_wrap(~component) +
+  theme_minimal() +
+  labs(
+    x = "PSQI Scores",
+    title = "Distribution of PSQI Domains"
+  ) + 
+  theme(
+    axis.text = element_text(size = 12, angle = 30, hjust = 1),
+    axis.title = element_text(size = 14)
+  ) 
+covid_psqi_hist_bycomp
+ggsave("covid_psqi_hist_bycomp.jpg", covid_psqi_hist_bycomp, width = 7, height = 5)
+```
+
+Clearly the domains where most people scored zero (comp 3, 4, and 6) were reducing internal consistency.
+
+After reoming these items
+```{r}
+covidt1_comp_sum_all <-
+  covidt1_comp_sum_all %>%
+mutate(
+    covid_psqi_t1_total_items1257 = 
+      comp1_subj_sleep_qual + comp2_sleep_lat + comp5_sleep_dist + comp7_day_disfunc)
+```
+
+```{r}
+covid_psqi_hist1257 <-
+ covidt1_comp_sum_all %>%
+  ggplot(aes(x=covid_psqi_t1_total_items1257)) +
+  geom_histogram(stat = "count", fill = "purple") +
+  theme_minimal() +
+  labs(
+    x = "PSQI Global Score (without Domains of Sleep Duration, Efficiency, and Medication"
+  ) + 
+  theme(
+    axis.text = element_text(size = 12, angle = 30, hjust = 1),
+    axis.title = element_text(size = 14)
+  ) 
+covid_psqi_hist1257
+```
+
+```{r}
+covid_psqi_t1_fp <- "~/Box/Mooddata_Coordinating/1_Lab_Coordinating/Users/JackieSchwartz/COVID19/covid_psqi_t1.csv"
+write_csv(covidt1_comp_sum_all, covid_psqi_t1_fp)
 ```
 
