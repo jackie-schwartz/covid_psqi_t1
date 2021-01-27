@@ -18,7 +18,7 @@ library(lubridate)
 
 # reading in data
 ```{r}
-covidt1_fp <- "~/Box/mooddata_nophi/ELS_RDoC/T-COVID-19/DATA/ELS_COVID_T1_Final_Child_Raw.csv"
+covidt1_fp <- "~/ELS_COVID_T1_Final_Child_Raw.csv"
 covidt1 <- read_csv(covidt1_fp)
 ```
 
