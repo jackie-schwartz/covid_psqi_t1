@@ -626,7 +626,7 @@ covid_psqi_hist1257
 ```
 
 ```{r}
-covid_psqi_t1_fp <- "~/Box/Mooddata_Coordinating/1_Lab_Coordinating/Users/JackieSchwartz/COVID19/covid_psqi_t1.csv"
+covid_psqi_t1_fp <- "~/JackieSchwartz/COVID19/covid_psqi_t1.csv"
 write_csv(covidt1_comp_sum_all, covid_psqi_t1_fp)
 ```
 
